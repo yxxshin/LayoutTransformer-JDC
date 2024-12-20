@@ -99,7 +99,6 @@ class Trainer:
             for it, (x, y, mask) in pbar:
 
                 if epoch == 0 and not is_train:
-                    # TODO ??
                     self.fixed_x = x[: min(4, len(x))]
                     self.fixed_y = y[: min(4, len(y))]
 
@@ -112,6 +111,7 @@ class Trainer:
                 with torch.set_grad_enabled(is_train):
                     # import ipdb; ipdb.set_trace()
                     logits, ce_loss, diffusion_loss = model(x, y, mask)
+                    loss = (ce_loss + diffusion_loss) / 2
                     loss = (
                         loss.mean()
                     )  # collapse all losses if they are scattered on multiple gpus
@@ -151,11 +151,17 @@ class Trainer:
 
                     # report progress
                     wandb.log(
-                        {"train loss": loss.item(), "lr": lr, "epoch": epoch + 1},
+                        {
+                            "train loss": loss.item(),
+                            "ce loss": ce_loss.item(),
+                            "diffuion loss": diffusion_loss.item(),
+                            "lr": lr,
+                            "epoch": epoch + 1,
+                        },
                         step=self.iters,
                     )
                     pbar.set_description(
-                        f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}"
+                        f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. ce loss {ce_loss.item():.5f}. diff loss {diffusion_loss.item():.5f}. lr {lr:e}"
                     )
 
             if not is_train:
@@ -184,7 +190,15 @@ class Trainer:
             ):
                 # import ipdb; ipdb.set_trace()
                 # inputs
-                layouts = self.fixed_x.detach().cpu().numpy()
+                # layouts = self.fixed_x.detach().cpu().numpy()
+                fixed_x_categories = self.fixed_x[:, :, 4:].argmax(dim=2, keepdim=True)
+                fixed_x_coords = self.fixed_x[:, :, :4]
+                layouts = (
+                    torch.cat((fixed_x_categories, fixed_x_coords), dim=-1)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
                 input_layouts = [
                     self.train_dataset.render(layout) for layout in layouts
                 ]
@@ -194,12 +208,24 @@ class Trainer:
 
                 # reconstruction
                 x_cond = self.fixed_x.to(self.device)
-                logits, _ = model(x_cond)
-                probs = F.softmax(logits, dim=-1)
-                _, y = torch.topk(probs, k=1, dim=-1)
+                # logits, _ = model(x_cond)
+                processed_logits = model(
+                    x_cond
+                )  # Already passed diffloss and softmax/topk
+
+                # probs = F.softmax(logits, dim=-1)
+                # _, y = torch.topk(probs, k=1, dim=-1)
+                # layouts = (
+                #     torch.cat((x_cond[:, :1], y[:, :, 0]), dim=1).detach().cpu().numpy()
+                # )
+                x_cond_categories = x_cond[:, :, 4:].argmax(dim=2, keepdim=True)
                 layouts = (
-                    torch.cat((x_cond[:, :1], y[:, :, 0]), dim=1).detach().cpu().numpy()
+                    torch.cat((x_cond_categories, processed_logits[:, :, 1:]), dim=-1)
+                    .detach()
+                    .cpu()
+                    .numpy()
                 )
+
                 recon_layouts = [
                     self.train_dataset.render(layout) for layout in layouts
                 ]
@@ -208,43 +234,45 @@ class Trainer:
                 #     layout.save(os.path.join(self.config.samples_dir, f'recon_{epoch:02d}_{i:02d}.png'))
 
                 # samples - random
-                layouts = (
-                    sample(
-                        model,
-                        x_cond[:, :6],
-                        steps=self.train_dataset.max_length,
-                        temperature=1.0,
-                        sample=True,
-                        top_k=5,
-                    )
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
-                sample_random_layouts = [
-                    self.train_dataset.render(layout) for layout in layouts
-                ]
+                ### TODO: utils/sample
+                # layouts = (
+                #     sample(
+                #         model,
+                #         x_cond[:, :6],
+                #         steps=self.train_dataset.max_length,
+                #         temperature=1.0,
+                #         sample=True,
+                #         top_k=5,
+                #     )
+                #     .detach()
+                #     .cpu()
+                #     .numpy()
+                # )
+                # sample_random_layouts = [
+                #     self.train_dataset.render(layout) for layout in layouts
+                # ]
                 # for i, layout in enumerate(layouts):
                 #     layout = self.train_dataset.render(layout)
                 #     layout.save(os.path.join(self.config.samples_dir, f'sample_random_{epoch:02d}_{i:02d}.png'))
 
                 # samples - deterministic
-                layouts = (
-                    sample(
-                        model,
-                        x_cond[:, :6],
-                        steps=self.train_dataset.max_length,
-                        temperature=1.0,
-                        sample=False,
-                        top_k=None,
-                    )
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
-                sample_det_layouts = [
-                    self.train_dataset.render(layout) for layout in layouts
-                ]
+                ### TODO: utils/sample
+                # layouts = (
+                #     sample(
+                #         model,
+                #         x_cond[:, :6],
+                #         steps=self.train_dataset.max_length,
+                #         temperature=1.0,
+                #         sample=False,
+                #         top_k=None,
+                #     )
+                #     .detach()
+                #     .cpu()
+                #     .numpy()
+                # )
+                # sample_det_layouts = [
+                #     self.train_dataset.render(layout) for layout in layouts
+                # ]
                 # for i, layout in enumerate(layouts):
                 #     layout = self.train_dataset.render(layout)
                 #     layout.save(os.path.join(self.config.samples_dir, f'sample_det_{epoch:02d}_{i:02d}.png'))
@@ -259,18 +287,18 @@ class Trainer:
                             wandb.Image(pil, caption=f"recon_{epoch:02d}_{i:02d}.png")
                             for i, pil in enumerate(recon_layouts)
                         ],
-                        "sample_random_layouts": [
-                            wandb.Image(
-                                pil, caption=f"sample_random_{epoch:02d}_{i:02d}.png"
-                            )
-                            for i, pil in enumerate(sample_random_layouts)
-                        ],
-                        "sample_det_layouts": [
-                            wandb.Image(
-                                pil, caption=f"sample_det_{epoch:02d}_{i:02d}.png"
-                            )
-                            for i, pil in enumerate(sample_det_layouts)
-                        ],
+                        # "sample_random_layouts": [
+                        #     wandb.Image(
+                        #         pil, caption=f"sample_random_{epoch:02d}_{i:02d}.png"
+                        #     )
+                        #     for i, pil in enumerate(sample_random_layouts)
+                        # ],
+                        # "sample_det_layouts": [
+                        #     wandb.Image(
+                        #         pil, caption=f"sample_det_{epoch:02d}_{i:02d}.png"
+                        #     )
+                        #     for i, pil in enumerate(sample_det_layouts)
+                        # ],
                     },
                     step=self.iters,
                 )

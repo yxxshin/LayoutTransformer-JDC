@@ -186,7 +186,7 @@ class JSONLayout(Dataset):
         self.max_length = max_length
 
         print(
-            f"max_length {max_length}: total {filtered_images} images among {len(images)} ({filtered_images / len(images)} %) filtered"
+            f"max_length {max_length}: total {filtered_images} images among {len(images)} ({filtered_images / len(images) * 100} %) filtered"
         )
 
         if self.max_length is None:
@@ -217,31 +217,74 @@ class JSONLayout(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def render(self, layout):
+    # def render(self, layout):
+    #     img = Image.new("RGB", (256, 256), color=(255, 255, 255))
+    #     draw = ImageDraw.Draw(img, "RGBA")
+    #     layout = layout.reshape(-1)
+    #     # layout = trim_tokens(layout, self.bos_token, self.eos_token, self.pad_token)
+    #     layout = layout[: len(layout) // 5 * 5].reshape(-1, 5)
+    #     box = layout[:, 1:].astype(np.float32)
+    #     box[:, [0, 1]] = box[:, [0, 1]] / (self.size - 1) * 255
+    #     box[:, [2, 3]] = box[:, [2, 3]] / self.size * 256
+    #     box[:, [2, 3]] = box[:, [0, 1]] + box[:, [2, 3]]
+    #
+    #     for i in range(len(layout)):
+    #         x1, y1, x2, y2 = box[i]
+    #         cat = layout[i][0]
+    #         col = (
+    #             self.colors[cat - self.size]
+    #             if 0 <= cat - self.size < len(self.colors)
+    #             else [0, 0, 0]
+    #         )
+    #         draw.rectangle(
+    #             [x1, y1, x2, y2],
+    #             outline=tuple(col) + (200,),
+    #             fill=tuple(col) + (64,),
+    #             width=2,
+    #         )
+    #
+    #     # Add border around image
+    #     img = ImageOps.expand(img, border=2)
+    #     return img
+
+    def render(self, layout):  # layout: [seq_len, category + coords] = [seq_len, 5]
         img = Image.new("RGB", (256, 256), color=(255, 255, 255))
         draw = ImageDraw.Draw(img, "RGBA")
-        layout = layout.reshape(-1)
-        layout = trim_tokens(layout, self.bos_token, self.eos_token, self.pad_token)
-        layout = layout[: len(layout) // 5 * 5].reshape(-1, 5)
-        box = layout[:, 1:].astype(np.float32)
-        box[:, [0, 1]] = box[:, [0, 1]] / (self.size - 1) * 255
-        box[:, [2, 3]] = box[:, [2, 3]] / self.size * 256
-        box[:, [2, 3]] = box[:, [0, 1]] + box[:, [2, 3]]
+        layout = trim_tokens(layout, bos=5.0, eos=6.0, pad=7.0)
 
         for i in range(len(layout)):
-            x1, y1, x2, y2 = box[i]
-            cat = layout[i][0]
-            col = (
-                self.colors[cat - self.size]
-                if 0 <= cat - self.size < len(self.colors)
-                else [0, 0, 0]
-            )
-            draw.rectangle(
-                [x1, y1, x2, y2],
-                outline=tuple(col) + (200,),
-                fill=tuple(col) + (64,),
-                width=2,
-            )
+            cat = layout[i, 0]
+            x1, y1, w, h = layout[i, 1:].astype(np.float32)
+            x1, y1 = x1 * 256, y1 * 256
+            w, h = w * 256, h * 256
+            x2, y2 = x1 + w, y1 + h
+
+            # Skip invalid boxes
+            if (
+                x1 < 0
+                or y1 < 0
+                or x2 > 256
+                or y2 > 256
+                or x1 >= x2
+                or y1 >= y2
+                or not np.isfinite(x1)
+                or not np.isfinite(x2)
+                or not np.isfinite(y1)
+                or not np.isfinite(y2)
+            ):
+                continue
+
+            col = self.colors[int(cat)]
+
+            try:
+                draw.rectangle(
+                    [float(x1), float(y1), float(x2), float(y2)],
+                    outline=tuple(col) + (200,),
+                    fill=tuple(col) + (64,),
+                    width=2,
+                )
+            except (ValueError, TypeError):
+                continue
 
         # Add border around image
         img = ImageOps.expand(img, border=2)

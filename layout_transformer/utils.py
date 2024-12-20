@@ -1,8 +1,9 @@
 import random
+
 import numpy as np
+import seaborn as sns
 import torch
 from torch.nn import functional as F
-import seaborn as sns
 
 
 def set_seed(seed):
@@ -15,7 +16,7 @@ def set_seed(seed):
 def top_k_logits(logits, k):
     v, ix = torch.topk(logits, k)
     out = logits.clone()
-    out[out < v[:, [-1]]] = -float('Inf')
+    out[out < v[:, [-1]]] = -float("Inf")
     return out
 
 
@@ -26,7 +27,7 @@ def gen_colors(num_colors):
     :return:
     """
     palette = sns.color_palette(None, num_colors)
-    rgb_triples = [[int(x[0]*255), int(x[1]*255), int(x[2]*255)] for x in palette]
+    rgb_triples = [[int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)] for x in palette]
     return rgb_triples
 
 
@@ -38,10 +39,16 @@ def sample(model, x, steps, temperature=1.0, sample=False, top_k=None):
     has quadratic complexity unlike an RNN that is only linear, and has a finite context window
     of block_size, unlike an RNN that has an infinite context window.
     """
-    block_size = model.module.get_block_size() if hasattr(model, "module") else model.getcond_block_size()
+    block_size = (
+        model.module.get_block_size()
+        if hasattr(model, "module")
+        else model.getcond_block_size()
+    )
     model.eval()
     for k in range(steps):
-        x_cond = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
+        x_cond = (
+            x if x.size(1) <= block_size else x[:, -block_size:]
+        )  # crop context if needed
         logits, _ = model(x_cond)
         # pluck the logits at the final step and scale by temperature
         logits = logits[:, -1, :] / temperature
@@ -61,14 +68,20 @@ def sample(model, x, steps, temperature=1.0, sample=False, top_k=None):
     return x
 
 
-def trim_tokens(tokens, bos, eos, pad=None):
-    bos_idx = np.where(tokens == bos)[0]
-    tokens = tokens[bos_idx[0]+1:] if len(bos_idx) > 0 else tokens
-    eos_idx = np.where(tokens == eos)[0]
-    tokens = tokens[:eos_idx[0]] if len(eos_idx) > 0 else tokens
-    # tokens = tokens[tokens != bos]
-    # tokens = tokens[tokens != eos]
-    if pad is not None:
-        tokens = tokens[tokens != pad]
-    return tokens
+# def trim_tokens(tokens, bos, eos, pad=None):
+#     bos_idx = np.where(tokens == bos)[0]
+#     tokens = tokens[bos_idx[0]+1:] if len(bos_idx) > 0 else tokens
+#     eos_idx = np.where(tokens == eos)[0]
+#     tokens = tokens[:eos_idx[0]] if len(eos_idx) > 0 else tokens
+#     # tokens = tokens[tokens != bos]
+#     # tokens = tokens[tokens != eos]
+#     if pad is not None:
+#         tokens = tokens[tokens != pad]
+#     return tokens
 
+
+def trim_tokens(tokens, bos=5.0, eos=6.0, pad=7.0):
+    categories = tokens[:, 0]
+    mask = (categories != bos) & (categories != eos) & (categories != pad)
+    trimmed_tokens = tokens[mask]
+    return trimmed_tokens
