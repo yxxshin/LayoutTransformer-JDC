@@ -69,16 +69,24 @@ def gen_colors(num_colors):
 
 
 @torch.no_grad()
-def sample(model, x, steps, sample=False):
+def sample(model, x, steps):
     model.eval()
     b, t, dim = x.size()  # [b, t, 12]
 
-    for _ in range(steps - t):
+    for i in range(steps - t):
+        print(f"[DEBUG] Step {i}")
+
         processed_logits = model(x)  # [b, t, 5]
-        ix = processed_logits[:, -2:-1, :]  # [b, 1, 5]
+        ix = processed_logits[:, -1, :].unsqueeze(1)  # [b, 1, 5]
+
         ix = transfer_to_onehot(ix)  # [b, 1, 12]
 
         x = torch.cat((x, ix), dim=1)
+
+        print(f"[DEBUG] ix = {ix}")
+
+        if ix[0, 0, -2] == 1.0:  # <eos>
+            break
 
     x = transfer_to_category(x)  # [b, steps, 5]
     return x
@@ -110,11 +118,9 @@ def transfer_to_onehot(x):
     x_categories = x[..., 0].long()
     x_coords = x[..., 1:5]
 
-    x_categories = x_categories.unsqueeze(-1)
     x_onehot = F.one_hot(x_categories, num_classes=8)
-    x_onehot = x_onehot.squeeze(-2).float()
 
-    x = torch.cat([x_coords, x_onehot], dim=-1)
+    x = torch.cat([x_coords, x_onehot.float()], dim=-1)
 
     return x
 
