@@ -74,7 +74,7 @@ def sample(model, x, steps):
     b, t, dim = x.size()  # [b, t, 12]
 
     for i in range(steps - t):
-        print(f"[DEBUG] Step {i}")
+        # print(f"[DEBUG] Step {i}")
 
         processed_logits = model(x)  # [b, t, 5]
         ix = processed_logits[:, -1, :].unsqueeze(1)  # [b, 1, 5]
@@ -89,7 +89,7 @@ def sample(model, x, steps):
 
         x = torch.cat((x, ix), dim=1)
 
-        print(f"[DEBUG] ix = {ix}")
+        # print(f"[DEBUG] ix = {ix}")
 
         if ix[0, 0, -2] == 1.0:  # <eos>
             break
