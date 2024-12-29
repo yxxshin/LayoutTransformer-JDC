@@ -21,6 +21,14 @@ python sample.py \
     --json_path path/to/test/json
 ```
 
+### Evaluation
+```bash
+# under layout_transformer_baseline
+python eval.py \
+    --ckpt path/to/ckpt/file \
+    # ... other options for model
+```
+
 ## With Joint Discrete-Continuous Generation
 ### Training
 ```bash 
@@ -38,4 +46,12 @@ python main.py \
 python sample.py \
     --ckpt path/to/pth/file \
     --json_path path/to/test/json
+```
+
+### Evaluation
+```bash 
+# under layout_transformer_jdc 
+python eval.py \
+    --ckpt path/to/pth/file \
+    # ... other options for model
 ```
