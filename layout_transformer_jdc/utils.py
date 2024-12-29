@@ -80,6 +80,12 @@ def sample(model, x, steps):
         ix = processed_logits[:, -1, :].unsqueeze(1)  # [b, 1, 5]
 
         ix = transfer_to_onehot(ix)  # [b, 1, 12]
+        
+        # Check if coords are valid (between 0 and 1)
+        if not (ix[0, 0, -2] == 1.0):
+            coords_valid = (ix[..., 1:5] >= 0.0) & (ix[..., 1:5] <= 1.0)
+            if not coords_valid.all():
+                ix[..., 1:5] = torch.zeros_like(ix[..., 1:5])
 
         x = torch.cat((x, ix), dim=1)
 
