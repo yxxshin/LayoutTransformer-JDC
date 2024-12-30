@@ -4,7 +4,7 @@ import os
 import torch
 from dataset import JSONLayout, MNISTLayout
 from model import GPT, GPTConfig
-from utils import sample, set_seed, transfer_to_category
+from utils import sample, set_seed, transfer_to_category, trim_tokens
 
 
 def get_args():
@@ -67,8 +67,9 @@ def main():
     x = x.to(device)
 
     with torch.no_grad():
-        # Random
-        rand_layouts = (
+        # Completion with one box
+        print("Sampling: Completion with one box")
+        completion_one = (
             sample(
                 model,
                 x[:, :1, :],
@@ -78,8 +79,9 @@ def main():
             .numpy()
         )
 
-        # Completion with one box
-        completion_one_layouts = (
+        # Completion with two boxes
+        print("Sampling: Completion with two boxes")
+        completion_two = (
             sample(
                 model,
                 x[:, :2, :],
@@ -89,8 +91,9 @@ def main():
             .numpy()
         )
         
-        # Completion with two boxes
-        completion_two_layouts = (
+        # Completion with three boxes
+        print("Sampling: Completion with three boxes")
+        completion_three = (
             sample(
                 model,
                 x[:, :3, :],
@@ -101,32 +104,29 @@ def main():
         )
         
         # Save results
-
         x = transfer_to_category(x)
 
         sampling_types = {
-            'random': rand_layouts,
-            'completion_one': completion_one_layouts,
-            'completion_two': completion_two_layouts
+            "completion_one": completion_one,
+            "completion_two": completion_two,
+            "completion_three": completion_three,
         }
 
         # Save input layouts
-        input_dir = os.path.join(args.output_dir, 'inputs')
+        input_dir = os.path.join(args.output_dir, "inputs")
         os.makedirs(input_dir, exist_ok=True)
         for i in range(batch_size):
-            dataset.render(x[i].cpu().numpy()).save(
+            dataset.render(trim_tokens(x[i]).cpu().numpy()).save(
                 os.path.join(input_dir, f"input_{i}.png")
             )
 
         # Save generated layouts
         for sample_type, layouts in sampling_types.items():
-            # Create directory for this sampling type
             type_dir = os.path.join(args.output_dir, sample_type)
             os.makedirs(type_dir, exist_ok=True)
-            
-            # Save each batch sample
+
             for i in range(batch_size):
-                dataset.render(layouts[i]).save(
+                dataset.render(trim_tokens(layouts[i])).save(
                     os.path.join(type_dir, f"sample_{i}.png")
                 )
 

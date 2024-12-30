@@ -72,26 +72,27 @@ def gen_colors(num_colors):
 def sample(model, x, steps):
     model.eval()
     b, t, dim = x.size()  # [b, t, 12]
-    
+
     # Track which sequences have finished
     finished_sequences = torch.zeros(b, dtype=torch.bool, device=x.device)
-    
+
     for i in range(steps - t):
         # Get indices of unfinished sequences
         unfinished_indices = torch.where(~finished_sequences)[0]
-        
+
         if len(unfinished_indices) == 0:
             break
-            
+
         # Only process unfinished sequences
         x_unfinished = x[unfinished_indices]
         processed_logits = model(x_unfinished)  # [unfinished_b, t, 5]
         ix = processed_logits[:, -1, :].unsqueeze(1)  # [unfinished_b, 1, 5]
         ix = transfer_to_onehot(ix)  # [unfinished_b, 1, 12]
-        
+
         # Create a zero tensor for the step's output
         new_step = torch.zeros((b, 1, dim), device=x.device)
-        
+        new_step[:, :, -1] = 1  # padding step
+
         # Handle coordinate validation and update finished status for unfinished sequences
         for idx, orig_idx in enumerate(unfinished_indices):
             if not (ix[idx, 0, -2] == 1.0):  # if not EOS
@@ -101,13 +102,13 @@ def sample(model, x, steps):
             else:
                 # Mark this sequence as finished
                 finished_sequences[orig_idx] = True
-            
+
             # Update the new step tensor
             new_step[orig_idx] = ix[idx]
-        
+
         # Concatenate the new step to all sequences
         x = torch.cat((x, new_step), dim=1)
-    
+
     x = transfer_to_category(x)  # [b, steps, 5]
     return x
 
@@ -132,8 +133,8 @@ def trim_tokens(tokens, bos=5.0, eos=6.0, pad=7.0):
 
 
 def transfer_to_onehot(x):
-    # input: [b, t, 12]
-    # output: [b, t, 5]
+    # input: [b, t, 5]
+    # output: [b, t, 12]
 
     x_categories = x[..., 0].long()
     x_coords = x[..., 1:5]
@@ -146,8 +147,8 @@ def transfer_to_onehot(x):
 
 
 def transfer_to_category(x):
-    # input: [b, t, 5]
-    # output: [b, t, 12]
+    # input: [b, t, 12]
+    # output: [b, t, 5]
     x_coords = x[..., :4]
     x_onehot = x[..., 4:]
     x_categories = torch.argmax(x_onehot, dim=-1).float()

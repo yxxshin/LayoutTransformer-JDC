@@ -45,7 +45,9 @@ python main.py \
 # under layout_transformer_jdc 
 python sample.py \
     --ckpt path/to/pth/file \
-    --json_path path/to/test/json
+    --json_path path/to/test/json \
+    --batch_size 4 \
+    --output_dir path/to/base/output/dir
 ```
 
 ### Evaluation
