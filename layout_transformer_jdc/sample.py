@@ -60,19 +60,29 @@ def main():
     batch_size = args.batch_size
     batch_tensors = []
     for i in range(batch_size):
-        batch_item = dataset[i][1]  # [1] gets from (x, y, mask tuple)
+        batch_item = dataset[i][0]  # [1] gets from (x, y, mask tuple)
         batch_tensors.append(batch_item)
 
     x = torch.stack(batch_tensors, dim=0)
     x = x.to(device)
 
     with torch.no_grad():
+        # Random 
+        print("Sampling: Random")
+        random_layout = (
+            sample(
+                model, 
+                x[:, :1, :], 
+                steps=dataset.max_length,
+            )
+        )
+
         # Completion with one box
         print("Sampling: Completion with one box")
         completion_one = (
             sample(
                 model,
-                x[:, :1, :],
+                x[:, :2, :],
                 steps=dataset.max_length,
             )
             .cpu()
@@ -84,7 +94,7 @@ def main():
         completion_two = (
             sample(
                 model,
-                x[:, :2, :],
+                x[:, :3, :],
                 steps=dataset.max_length,
             )
             .cpu()
@@ -96,7 +106,7 @@ def main():
         completion_three = (
             sample(
                 model,
-                x[:, :3, :],
+                x[:, :4, :],
                 steps=dataset.max_length,
             )
             .cpu()
@@ -107,6 +117,7 @@ def main():
         x = transfer_to_category(x)
 
         sampling_types = {
+            "random": random_layout,
             "completion_one": completion_one,
             "completion_two": completion_two,
             "completion_three": completion_three,
