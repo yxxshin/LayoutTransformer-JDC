@@ -16,12 +16,13 @@ def get_args():
     parser.add_argument("--n_embd", default=512, type=int)
     parser.add_argument("--n_head", default=8, type=int)
     parser.add_argument("--input_dim", default=12, type=int)
-    parser.add_argument("--diffloss_d", type=int, default=6)
-    parser.add_argument("--diffloss_w", type=int, default=512)
+    parser.add_argument("--diffloss_d", type=int, default=3)
+    parser.add_argument("--diffloss_w", type=int, default=256)
     parser.add_argument("--num_sampling_steps", type=str, default="100")
     parser.add_argument("--output_dir", type=str, default="samples")
     parser.add_argument("--grad_checkpointing", type=bool, default=False)
     parser.add_argument("--diffusion_batch_mul", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=32)
     return parser.parse_args()
 
 
@@ -56,22 +57,27 @@ def main():
     model = model.to(device)
     model.eval()
 
-    # Get first few samples from dataset
-    x = dataset[0][1].unsqueeze(0)  # [0][0] gets x from (x,y,mask) tuple
+    batch_size = args.batch_size
+    batch_tensors = []
+    for i in range(batch_size):
+        batch_item = dataset[i][1]  # [1] gets from (x, y, mask tuple)
+        batch_tensors.append(batch_item)
+
+    x = torch.stack(batch_tensors, dim=0)
     x = x.to(device)
 
     with torch.no_grad():
         # Random
         rand_layouts = (
             sample(
-                model, 
+                model,
                 x[:, :1, :],
                 steps=dataset.max_length,
             )
-            .cpu() 
+            .cpu()
             .numpy()
         )
-        
+
         # Completion with one box
         completion_one_layouts = (
             sample(
@@ -86,34 +92,44 @@ def main():
         # Completion with two boxes
         completion_two_layouts = (
             sample(
-                model, 
+                model,
                 x[:, :3, :],
                 steps=dataset.max_length,
             )
-            .cpu() 
-            .numpy() 
+            .cpu()
+            .numpy()
         )
-                    
-
+        
         # Save results
 
         x = transfer_to_category(x)
 
-        dataset.render(x[0].cpu().numpy()).save(
-            os.path.join(args.output_dir, "input.png")
-        )
-        dataset.render(rand_layouts[0]).save(
-            os.path.join(args.output_dir, "random.png")
-        )
-        dataset.render(completion_one_layouts[0]).save(
-            os.path.join(args.output_dir, "completion_one_box.png")
-        )
-        dataset.render(completion_two_layouts[0]).save(
-            os.path.join(args.output_dir, "completion_two_box.png")
-        )
-        
+        sampling_types = {
+            'random': rand_layouts,
+            'completion_one': completion_one_layouts,
+            'completion_two': completion_two_layouts
+        }
+
+        # Save input layouts
+        input_dir = os.path.join(args.output_dir, 'inputs')
+        os.makedirs(input_dir, exist_ok=True)
+        for i in range(batch_size):
+            dataset.render(x[i].cpu().numpy()).save(
+                os.path.join(input_dir, f"input_{i}.png")
+            )
+
+        # Save generated layouts
+        for sample_type, layouts in sampling_types.items():
+            # Create directory for this sampling type
+            type_dir = os.path.join(args.output_dir, sample_type)
+            os.makedirs(type_dir, exist_ok=True)
+            
+            # Save each batch sample
+            for i in range(batch_size):
+                dataset.render(layouts[i]).save(
+                    os.path.join(type_dir, f"sample_{i}.png")
+                )
 
 
 if __name__ == "__main__":
     main()
-

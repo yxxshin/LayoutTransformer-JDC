@@ -72,28 +72,42 @@ def gen_colors(num_colors):
 def sample(model, x, steps):
     model.eval()
     b, t, dim = x.size()  # [b, t, 12]
-
+    
+    # Track which sequences have finished
+    finished_sequences = torch.zeros(b, dtype=torch.bool, device=x.device)
+    
     for i in range(steps - t):
-        # print(f"[DEBUG] Step {i}")
-
-        processed_logits = model(x)  # [b, t, 5]
-        ix = processed_logits[:, -1, :].unsqueeze(1)  # [b, 1, 5]
-
-        ix = transfer_to_onehot(ix)  # [b, 1, 12]
+        # Get indices of unfinished sequences
+        unfinished_indices = torch.where(~finished_sequences)[0]
         
-        # Check if coords are valid (between 0 and 1)
-        if not (ix[0, 0, -2] == 1.0):
-            coords_valid = (ix[..., 1:5] >= 0.0) & (ix[..., 1:5] <= 1.0)
-            if not coords_valid.all():
-                ix[..., 1:5] = torch.zeros_like(ix[..., 1:5])
-
-        x = torch.cat((x, ix), dim=1)
-
-        # print(f"[DEBUG] ix = {ix}")
-
-        if ix[0, 0, -2] == 1.0:  # <eos>
+        if len(unfinished_indices) == 0:
             break
-
+            
+        # Only process unfinished sequences
+        x_unfinished = x[unfinished_indices]
+        processed_logits = model(x_unfinished)  # [unfinished_b, t, 5]
+        ix = processed_logits[:, -1, :].unsqueeze(1)  # [unfinished_b, 1, 5]
+        ix = transfer_to_onehot(ix)  # [unfinished_b, 1, 12]
+        
+        # Create a zero tensor for the step's output
+        new_step = torch.zeros((b, 1, dim), device=x.device)
+        
+        # Handle coordinate validation and update finished status for unfinished sequences
+        for idx, orig_idx in enumerate(unfinished_indices):
+            if not (ix[idx, 0, -2] == 1.0):  # if not EOS
+                coords_valid = (ix[idx, :, 1:5] >= 0.0) & (ix[idx, :, 1:5] <= 1.0)
+                if not coords_valid.all():
+                    ix[idx, :, 1:5] = torch.zeros_like(ix[idx, :, 1:5])
+            else:
+                # Mark this sequence as finished
+                finished_sequences[orig_idx] = True
+            
+            # Update the new step tensor
+            new_step[orig_idx] = ix[idx]
+        
+        # Concatenate the new step to all sequences
+        x = torch.cat((x, new_step), dim=1)
+    
     x = transfer_to_category(x)  # [b, steps, 5]
     return x
 
