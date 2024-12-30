@@ -90,8 +90,8 @@ if __name__ == "__main__":
         valid_dataset = JSONLayout(args.val_json, max_length=train_dataset.max_length)
 
     mconf = GPTConfig(
-        train_dataset.vocab_size,
-        train_dataset.max_length,
+        vocab_size=train_dataset.vocab_size,
+        block_size=train_dataset.max_length + 1,
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_embd=args.n_embd,

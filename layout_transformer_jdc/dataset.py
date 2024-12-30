@@ -27,10 +27,10 @@ class Padding(object):
         self.cat_size = cat_size
 
     def __call__(self, layout):
-        # grab a chunk of (max_length + 1) from the layout
+        # grab a chunk of (max_length + 2) from the layout
 
         # chunk = torch.zeros(self.max_length + 1, dtype=torch.long) + self.pad_token
-        chunk = torch.stack([self.pad_token] * (self.max_length + 1))
+        chunk = torch.stack([self.pad_token] * (self.max_length + 2))
         # Assume len(item) will always be <= self.max_length:
         chunk[0] = self.bos_token
 
@@ -175,7 +175,7 @@ class JSONLayout(Dataset):
 
             layout = np.concatenate([ann_box, cat_onehot], axis=1)
 
-            if (len(layout.reshape(-1))) > max_length:
+            if (layout.shape[0]) > max_length:
                 filtered_images += 1
                 continue
 
