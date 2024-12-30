@@ -10,7 +10,7 @@ from model import GPT, GPTConfig
 from scipy import linalg
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from utils import sample, set_seed, trim_tokens
+from utils import sample, set_seed, transfer_to_category, trim_tokens
 
 
 def get_args():
@@ -41,27 +41,29 @@ def get_args():
     return parser.parse_args()
 
 
-def preprocess_layout(layout, device):
-    """Preprocess single layout with proper formatting
+def preprocess_layout_batch(layouts, device):
+    """Preprocess batch of layouts with proper formatting
     Args:
-        layout: numpy array of shape (seq_len, 5) where first dim is category
-               and remaining 4 dims are coordinates
+        layouts: numpy array of shape (batch_size, seq_len, 5)
         device: torch device
     """
     # Split into category and coordinates
-    layout = torch.tensor(layout, dtype=torch.float)
-    label = layout[:, 0].long()  # Get categories
-    bbox = layout[:, 1:]         # Get coordinates
+    layouts = torch.tensor(layouts, dtype=torch.float)
+    labels = layouts[..., 0].long()  # Get categories
+    bboxes = layouts[..., 1:]  # Get coordinates
 
     # Add batch dimension
-    bbox = bbox.unsqueeze(0).to(device)
-    label = label.unsqueeze(0).to(device)
-    
+    bboxes = bboxes.to(device)
+    labels = labels.to(device)
+
     # Create mask (ignore padding tokens)
-    mask = (label != 7).to(device)  # 7 is padding token
-    padding_mask = ~mask
-    
-    return bbox, label, padding_mask, mask
+    masks = (labels < 5).to(device)  # 5 = bos, 6 = eos, 7 = padding
+    padding_masks = ~masks
+
+    # For FID compatibility, we change padding labels to label 0
+    labels = torch.where(masks, labels, torch.zeros_like(labels))
+
+    return bboxes, labels, padding_masks, masks
 
 
 def compute_fid_score(real_features: np.ndarray, gen_features: np.ndarray) -> float:
@@ -79,82 +81,95 @@ def compute_fid_score(real_features: np.ndarray, gen_features: np.ndarray) -> fl
     return float(fid)
 
 
+def compute_alignment_score_batch(bboxes):
+    """Compute alignment metrics for a batch of layouts"""
+    bboxes = bboxes.cpu().numpy()
+    batch_scores = []
 
-def compute_alignment_score(bbox):
-    """Compute alignment metrics for a single layout"""
-    bbox = bbox.cpu().numpy()
-    S = bbox.shape[1]
+    for bbox in bboxes:  # Iterate over batch dimension
+        S = bbox.shape[0]
 
-    xc = bbox[..., 0] + bbox[..., 2] / 2
-    yc = bbox[..., 1] + bbox[..., 3] / 2
-    xl = bbox[..., 0]
-    xr = bbox[..., 0] + bbox[..., 2]
-    yt = bbox[..., 1]
-    yb = bbox[..., 1] + bbox[..., 3]
+        xc = bbox[..., 0] + bbox[..., 2] / 2
+        yc = bbox[..., 1] + bbox[..., 3] / 2
+        xl = bbox[..., 0]
+        xr = bbox[..., 0] + bbox[..., 2]
+        yt = bbox[..., 1]
+        yb = bbox[..., 1] + bbox[..., 3]
 
-    # AC-LayoutGAN score
-    X = (
-        np.stack((xl[0], xc[0], xr[0], yt[0], yc[0], yb[0]))[:, :, None]
-        - np.stack((xl[0], xc[0], xr[0], yt[0], yc[0], yb[0]))[:, None, :]
-    )
-    indices = np.arange(S)
-    X[:, indices, indices] = 1.0
-    X = np.abs(X)
-    X = X.min(axis=0)
-    
-    epsilon = 1e-8
-    X = np.clip(X, 0.0, 0.95)
-    
-    score_ac = -np.log(1 - X).sum()
+        X = (
+            np.stack((xl, xc, xr, yt, yc, yb))[:, :, None]
+            - np.stack((xl, xc, xr, yt, yc, yb))[:, None, :]
+        )
+        indices = np.arange(S)
+        X[:, indices, indices] = 1.0
+        X = np.abs(X)
+        X = X.min(axis=0)
 
-    # LayoutGAN++ score
-    score_layoutgan = score_ac / S if S > 0 else 0.0
-    
+        epsilon = 1e-8
+        X = np.clip(X, 0.0, 0.95)
+
+        score_ac = -np.log(1 - X).sum()
+        score_layoutgan = score_ac / S if S > 0 else 0.0
+
+        batch_scores.append(
+            {
+                "alignment-ACLayoutGAN": score_ac,
+                "alignment-LayoutGAN++": score_layoutgan,
+            }
+        )
+
+    # Average scores across batch
     return {
-        "alignment-ACLayoutGAN": score_ac,
-        "alignment-LayoutGAN++": score_layoutgan,
+        k: np.mean([score[k] for score in batch_scores]) for k in batch_scores[0].keys()
     }
 
-def compute_overlap(bbox, mask):
-    """Compute overlap between layout elements for a single layout"""
-    bbox = bbox.cpu().numpy()[0]  # Remove batch dimension
-    mask = mask.cpu().numpy()[0]  # Remove batch dimension
-    
-    valid_boxes = bbox[mask]
-    if len(valid_boxes) <= 1:
-        return {"overlap": 0.0}
 
-    total_iou = 0
-    count = 0
-    for i in range(len(valid_boxes)):
-        for j in range(i + 1, len(valid_boxes)):
-            box1 = valid_boxes[i]
-            box2 = valid_boxes[j]
+def compute_overlap_batch(bboxes):
+    """Compute overlap between layout elements for a batch of layouts"""
+    bboxes = bboxes.cpu().numpy()
 
-            x1 = max(box1[0], box2[0])
-            y1 = max(box1[1], box2[1])
-            x2 = min(box1[0] + box1[2], box2[0] + box2[2])
-            y2 = min(box1[1] + box1[3], box2[1] + box2[3])
+    batch_scores = []
 
-            if x2 > x1 and y2 > y1:
-                intersection = (x2 - x1) * (y2 - y1)
-                area1 = box1[2] * box1[3]
-                area2 = box2[2] * box2[3]
-                union = area1 + area2 - intersection
-                iou = intersection / union
-                total_iou += iou
-                count += 1
+    for i in range(len(bboxes)):
+        bbox = bboxes[i]        # iterating each batch
 
-    return {"overlap": total_iou / count if count > 0 else 0.0}
+        if len(bbox) <= 1:
+            batch_scores.append({"overlap": 0.0})
+            continue
+
+        total_iou = 0
+        count = 0
+        for i in range(len(bbox)):
+            for j in range(i + 1, len(bbox)):
+                box1 = bbox[i]
+                box2 = bbox[j]
+
+                x1 = max(box1[0], box2[0])
+                y1 = max(box1[1], box2[1])
+                x2 = min(box1[0] + box1[2], box2[0] + box2[2])
+                y2 = min(box1[1] + box1[3], box2[1] + box2[3])
+
+                if x2 > x1 and y2 > y1:
+                    intersection = (x2 - x1) * (y2 - y1)
+                    area1 = box1[2] * box1[3]
+                    area2 = box2[2] * box2[3]
+                    union = area1 + area2 - intersection
+                    iou = intersection / union
+                    total_iou += iou
+                    count += 1
+
+        batch_scores.append({"overlap": total_iou / count if count > 0 else 0.0})
+
+    # Average scores across batch
+    return {
+        k: np.mean([score[k] for score in batch_scores]) for k in batch_scores[0].keys()
+    }
 
 
 def evaluate_model(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Load dataset
     dataset = JSONLayout(args.json_path, max_length=args.max_length)
 
-    # Initialize models
     # Layout generation model
     mconf = GPTConfig(
         dataset.vocab_size,
@@ -180,8 +195,8 @@ def evaluate_model(args):
     class PretrainedDatasetConfig:
         def __init__(self):
             self.name = "publaynet"
-            self.max_seq_length = 25  
-            self.num_classes = 5 
+            self.max_seq_length = 25
+            self.num_classes = 5
 
     pretrained_config = PretrainedDatasetConfig()
     fidnet = load_fidnet_v3(pretrained_config, args.fid_weight_dir, device)
@@ -189,12 +204,27 @@ def evaluate_model(args):
     # Extract real features
     real_features = []
     print("Extracting features from real layouts...")
-    for i in tqdm(range(min(args.num_samples, len(dataset)))):
-        x = dataset[i][1].unsqueeze(0).to(device)
-        bbox = x[:, :, :4]
-        label = x[:, :, 4].long()
-        padding_mask = label == 0
+    num_real_batches = (
+        min(args.num_samples, len(dataset)) + args.batch_size - 1
+    ) // args.batch_size
+
+    for batch_idx in tqdm(range(num_real_batches)):
+        batch_start = batch_idx * args.batch_size
+        batch_end = min(batch_start + args.batch_size, args.num_samples, len(dataset))
+        batch_size = batch_end - batch_start
+
+        batch_tensors = []
+        for i in range(batch_start, batch_end):
+            batch_tensors.append(dataset[i][1])
+
+        x = torch.stack(batch_tensors, dim=0).to(device)
+        x = transfer_to_category(x)
+        label = x[..., 0].long()
+        bbox = x[..., 1:]
+        padding_mask = label >= 5
         mask = ~padding_mask
+
+        label = torch.where(mask, label, torch.zeros_like(label))
 
         with torch.no_grad():
             feat = fidnet.extract_features(bbox, label, padding_mask)
@@ -202,66 +232,107 @@ def evaluate_model(args):
 
     real_features = np.concatenate(real_features, axis=0)
 
-    # Generate and evaluate layouts
-    gen_features = []
-    alignment_scores = defaultdict(list)
-    overlap_scores = defaultdict(list)
+    sampling_configs = {
+        "random": 1,  # Only BOS token
+        "completion_one": 2,  # BOS + 1 box
+        "completion_two": 3,  # BOS + 2 boxes
+        # "completion_three": 4,  # BOS + 3 boxes
+    }
 
-    print("Generating and evaluating layouts...")
-    for i in tqdm(range(args.num_samples)):
-        # Get random sample from dataset for conditioning
-        idx = np.random.randint(0, len(dataset))
-        x = dataset[idx][0].unsqueeze(0).to(device)
+    all_metrics = {}
 
-        with torch.no_grad():
-            # Generate completion
-            completion = sample(
-                model,
-                x[:, : args.num_context_boxes + 1, :],  # +1 for BOS token
-                steps=dataset.max_length,
-            )
-            
-            trimmed_completion = trim_tokens(completion[0])
+    for sample_type, num_context_boxes in sampling_configs.items():
+        print(f"\nEvaluating {sample_type}...")
 
-            # Process generated layout
-            bbox, label, padding_mask, mask = preprocess_layout(trimmed_completion.cpu().numpy(), device)
+        gen_features = []
+        alignment_scores = defaultdict(list)
+        overlap_scores = defaultdict(list)
 
-            # Extract features for FID
-            feat = fidnet.extract_features(bbox, label, padding_mask)
-            gen_features.append(feat.cpu().numpy())
+        # Create sequential data loader
+        data_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
-            # Compute other metrics
-            for k, v in compute_alignment_score(bbox).items():
-                alignment_scores[k].append(v)
-            for k, v in compute_overlap(bbox, mask).items():
-                overlap_scores[k].append(v)
+        for batch_idx, (x, _, _) in enumerate(tqdm(data_loader)):
+            if batch_idx * args.batch_size >= args.num_samples:
+                break
 
-    gen_features = np.concatenate(gen_features, axis=0)
+            x = x.to(device)
 
-    # Compute final metrics
-    metrics = {}
+            with torch.no_grad():
+                # Generate completion
+                completion = sample(
+                    model,
+                    x[:, :num_context_boxes],  # Include context boxes
+                    steps=dataset.max_length,
+                )
 
-    # FID score
-    metrics["FID"] = compute_fid_score(real_features, gen_features)
+                # Process completions
+                trimmed_sequences = [trim_tokens(comp) for comp in completion]
+                max_length = max(seq.size(0) for seq in trimmed_sequences)
 
-    # Alignment scores
-    for k, v in alignment_scores.items():
-        metrics[k] = np.mean(v)
+                padded_sequences = [pad_sequence_to_length(seq, max_length) 
+                              for seq in trimmed_sequences]
 
-    # Overlap scores
-    for k, v in overlap_scores.items():
-        metrics[k] = np.mean(v)
+                batch_trimmed = torch.stack(padded_sequences)
 
-    # Print results
+                bbox, label, padding_mask, mask = preprocess_layout_batch(
+                    batch_trimmed.cpu().numpy(), device
+                )
+
+                feat = fidnet.extract_features(bbox, label, padding_mask)
+                gen_features.append(feat.cpu().numpy())
+
+                alignment_metrics = compute_alignment_score_batch(bbox)
+                for k, v in alignment_metrics.items():
+                    alignment_scores[k].append(v)
+
+                overlap_metrics = compute_overlap_batch(bbox)
+                for k, v in overlap_metrics.items():
+                    overlap_scores[k].append(v)
+
+                # Save sample visualizations only for the first few samples
+                if batch_idx == 0:
+                    save_dir = os.path.join(args.output_dir, sample_type)
+                    os.makedirs(save_dir, exist_ok=True)
+                    for i in range(min(5, len(completion))):
+                        dataset.render(batch_trimmed[i].cpu().numpy()).save(
+                            os.path.join(save_dir, f"sample_{i}.png")
+                        )
+
+        # Compute metrics for this sampling type
+        gen_features = np.concatenate(gen_features, axis=0)
+
+        metrics = {
+            "FID": compute_fid_score(real_features, gen_features),
+            **{k: np.mean(v) for k, v in alignment_scores.items()},
+            **{k: np.mean(v) for k, v in overlap_scores.items()},
+        }
+
+        all_metrics[sample_type] = metrics
+
+    # Print and save all results
     print("\nEvaluation Results:")
-    for k, v in sorted(metrics.items()):
-        print(f"{k}: {v:.4f}")
+    for sample_type, metrics in all_metrics.items():
+        print(f"\n{sample_type}:")
+        for k, v in sorted(metrics.items()):
+            print(f"{k}: {v:.4f}")
 
     # Save results
     os.makedirs(args.output_dir, exist_ok=True)
-    np.save(os.path.join(args.output_dir, "eval_results.npy"), metrics)
+    np.save(os.path.join(args.output_dir, "eval_results.npy"), all_metrics)
 
-    return metrics
+    return all_metrics
+
+
+def pad_sequence_to_length(sequence, target_length):
+    """Pad a sequence to the target length with padding tokens (7)"""
+    current_length = len(sequence)
+    if current_length >= target_length:
+        return sequence[:target_length]
+    
+    padding = torch.full((target_length - current_length, sequence.size(1)), 7, 
+                        dtype=sequence.dtype, device=sequence.device)
+    return torch.cat([sequence, padding], dim=0)
+
 
 
 def main():
