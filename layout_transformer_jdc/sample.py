@@ -38,8 +38,8 @@ def main():
 
     # Initialize model config and load checkpoint
     mconf = GPTConfig(
-        dataset.vocab_size,
-        dataset.max_length,
+        vocab_size=dataset.vocab_size,
+        block_size=dataset.max_length + 1,
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_embd=args.n_embd,
@@ -75,6 +75,8 @@ def main():
                 x[:, :1, :], 
                 steps=dataset.max_length,
             )
+            .cpu() 
+            .numpy()
         )
 
         # Completion with one box

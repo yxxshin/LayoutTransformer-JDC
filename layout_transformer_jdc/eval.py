@@ -172,8 +172,8 @@ def evaluate_model(args):
 
     # Layout generation model
     mconf = GPTConfig(
-        dataset.vocab_size,
-        dataset.max_length,
+        vocab_size=dataset.vocab_size,
+        block_size=dataset.max_length+1,
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_embd=args.n_embd,
@@ -187,7 +187,7 @@ def evaluate_model(args):
     )
     model = GPT(mconf)
     model.load_state_dict(torch.load(args.ckpt, map_location=device))
-    model = model.to(device)
+    model = torch.nn.DataParallel(model).to(device)
     model.eval()
 
     # FIDNet model
@@ -233,7 +233,7 @@ def evaluate_model(args):
     real_features = np.concatenate(real_features, axis=0)
 
     sampling_configs = {
-        "random": 1,  # Only BOS token
+        # "random": 1,  # Only BOS token
         "completion_one": 2,  # BOS + 1 box
         "completion_two": 3,  # BOS + 2 boxes
         # "completion_three": 4,  # BOS + 3 boxes
