@@ -39,6 +39,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_sampling_steps", type=str, default="100")
     parser.add_argument("--grad_checkpointing", type=bool, default=False)
     parser.add_argument("--diffusion_batch_mul", type=int, default=4)
+    parser.add_argument("--loss_weight", type=int, default=1)
 
     # Architecture/training options
     parser.add_argument("--seed", type=int, default=42, help="random seed")
@@ -114,6 +115,7 @@ if __name__ == "__main__":
         ckpt_dir=ckpt_dir,
         samples_dir=samples_dir,
         sample_every=args.sample_every,
+        loss_weight=args.loss_weight,
     )
     trainer = Trainer(model, train_dataset, valid_dataset, tconf, args)
     trainer.train()

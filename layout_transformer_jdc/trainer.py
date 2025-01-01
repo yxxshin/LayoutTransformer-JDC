@@ -35,6 +35,7 @@ class TrainerConfig:
     samples_dir = None
     sample_every = 1
     num_workers = 0  # for DataLoader
+    loss_weight = 1
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -111,7 +112,7 @@ class Trainer:
                 with torch.set_grad_enabled(is_train):
                     # import ipdb; ipdb.set_trace()
                     logits, ce_loss, diffusion_loss = model(x, y, mask)
-                    loss = (ce_loss + diffusion_loss) / 2
+                    loss = (ce_loss + config.loss_weight * diffusion_loss) / (1 + config.loss_weight)
                     loss = (
                         loss.mean()
                     )  # collapse all losses if they are scattered on multiple gpus

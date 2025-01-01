@@ -100,13 +100,10 @@ def sample(model, x, steps):
                 if not coords_valid.all():
                     ix[idx, :, 1:5] = torch.zeros_like(ix[idx, :, 1:5])
             else:
-                # Mark this sequence as finished
                 finished_sequences[orig_idx] = True
 
-            # Update the new step tensor
             new_step[orig_idx] = ix[idx]
 
-        # Concatenate the new step to all sequences
         x = torch.cat((x, new_step), dim=1)
 
     x = transfer_to_category(x)  # [b, steps, 5]
