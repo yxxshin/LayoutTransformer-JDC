@@ -284,23 +284,22 @@ class GPT(nn.Module):
             diffusion_loss = self.diffloss(z=logits_cont, target=targets_cont)
             return logits, ce_loss, diffusion_loss
         else:
-            logits_cont = logits[:, :, :4]
+            logits_cont = logits[:, :, :4]  # [b, t, 4]
             logits_disc = logits[:, :, 4:]
 
+            # Discrete part
             probs_disc = F.softmax(logits_disc, dim=-1)
             _, top_disc = torch.topk(probs_disc, k=1, dim=-1)  # [b, t, 1]
 
-            sampled_cont = []
-            for i in range(b):
-                for j in range(t):
-                    sample = self.diffloss.sample(
-                        z=logits_cont[i : i + 1, j],
-                        temperature=1.0,
-                        cfg=1.0,
-                    )
-                    sampled_cont.append(sample)
-
-            sampled_cont = torch.stack(sampled_cont).reshape(b, t, 4)
+            # Continuous part
+            flat_logits_cont = logits_cont.reshape(-1, 4)  # [b*t, 4]
+            
+            sampled_cont = self.diffloss.sample(
+                z=flat_logits_cont,
+                temperature=1.0,
+                cfg=1.0,
+            )
+            sampled_cont = sampled_cont.reshape(b, t, 4)
 
             processed_logits = torch.cat(
                 [
