@@ -5,3 +5,6 @@ samples/
 download/
 fid_weights/
 eval_results/
+data/
+output/
+scripts/

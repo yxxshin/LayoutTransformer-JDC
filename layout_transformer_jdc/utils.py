@@ -95,12 +95,13 @@ def sample(model, x, steps):
 
         # Handle coordinate validation and update finished status for unfinished sequences
         for idx, orig_idx in enumerate(unfinished_indices):
-            if not (ix[idx, 0, -2] == 1.0):  # if not EOS
-                coords_valid = (ix[idx, :, 1:5] >= 0.0) & (ix[idx, :, 1:5] <= 1.0)
-                if not coords_valid.all():
-                    ix[idx, :, 1:5] = torch.zeros_like(ix[idx, :, 1:5])
-            else:
+            if ix[idx, 0, -2] == 1.0:  # EOS token
                 finished_sequences[orig_idx] = True
+
+            coords_valid = (ix[idx, :, 0:4] > 0.0) & (ix[idx, :, 0:4] < 1.0)
+            if not coords_valid.all():
+                finished_sequences[orig_idx] = True
+                ix[idx, 0] = torch.tensor([0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 1, 0], dtype=torch.float32)
 
             new_step[orig_idx] = ix[idx]
 
