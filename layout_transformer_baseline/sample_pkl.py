@@ -10,7 +10,35 @@ from torch_geometric.data import DataLoader
 from torch_geometric.utils import to_dense_batch
 from tqdm import tqdm
 from utils import sample, trim_tokens
+from PIL import Image, ImageDraw
 
+def convert_xywh_to_ltrb(bbox):
+    """Convert bbox from [x_center, y_center, width, height] to [x1, y1, x2, y2] format"""
+    xc, yc, w, h = bbox
+    x1 = xc - w / 2
+    y1 = yc - h / 2
+    x2 = xc + w / 2
+    y2 = yc + h / 2
+    return [x1, y1, x2, y2]
+
+def convert_layout_to_image(boxes, labels, colors, canvas_size):
+    """Convert layout boxes and labels to an image"""
+    H, W = canvas_size
+    img = Image.new("RGB", (int(W), int(H)), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    # Draw from larger boxes to smaller ones
+    area = [b[2] * b[3] for b in boxes]
+    indices = sorted(range(len(area)), key=lambda i: area[i], reverse=True)
+
+    for i in indices:
+        bbox, color = boxes[i], colors[int(labels[i])]
+        c_fill = color + (100,)  # Add alpha channel for fill
+        x1, y1, x2, y2 = convert_xywh_to_ltrb(bbox)
+        x1, x2 = x1 * (W - 1), x2 * (W - 1)
+        y1, y2 = y1 * (H - 1), y2 * (H - 1)
+        draw.rectangle([x1, y1, x2, y2], outline=color, fill=c_fill)
+    return img
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -22,6 +50,7 @@ def get_args():
     parser.add_argument("--n_embd", default=512, type=int)
     parser.add_argument("--num_context_boxes", type=int, default=1)
     parser.add_argument("--dataset_type", type=str, default="test")
+    parser.add_argument("--num_save", type=int, default=4)
     return parser.parse_args()
 
 
@@ -58,7 +87,8 @@ def convert_baseline_to_model_input(data, device):
 def main():
     args = get_args()
     out_path = Path(args.out_path)
-    out_path.parent.mkdir(exist_ok=True, parents=True)
+    out_dir = out_path.parent
+    out_dir.mkdir(exist_ok=True, parents=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -89,6 +119,8 @@ def main():
     model.eval()
 
     results = []
+    saved_count = 0 
+    
     with torch.no_grad():
         for data in tqdm(dataloader):
             data = data.to(device)
@@ -119,16 +151,24 @@ def main():
 
                 # Reshape to [N, 5] and separate bbox/labels
                 layout = layout.reshape(-1, 5)
-                # For categorical coordinates, we're already getting indices 0-255
-                # Convert back to [0,1] range by dividing by 255 (not 256)
                 bbox = layout[:, 1:].astype(np.float32) / 255.0
                 label = (
                     layout[:, 0].astype(np.int64) - 256
-                )  # Convert back to dataset labels
+                ) 
 
                 # Validate outputs
                 if len(bbox) > 0 and len(label) > 0:
                     results.append((bbox, label))
+                    
+                    if saved_count < args.num_save:
+                        print(f"bbox: {bbox}")
+                        print(f"label: {label}")
+                        
+                        img = convert_layout_to_image(
+                            bbox, label, dataset.colors, (120, 80)
+                        )
+                        img.save(out_dir / f"generated_{saved_count}.png")
+                        saved_count += 1
 
     # Save results
     with open(args.out_path, "wb") as f:
