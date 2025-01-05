@@ -153,50 +153,50 @@ class Trainer:
                 best_loss = test_loss
                 self.save_checkpoint()
 
-            # sample from the model
-            if self.config.samples_dir is not None and (epoch+1) % self.config.sample_every == 0:
-                # import ipdb; ipdb.set_trace()
-                # inputs
-                layouts = self.fixed_x.detach().cpu().numpy()
-                input_layouts = [self.train_dataset.render(layout) for layout in layouts]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(os.path.join(self.config.samples_dir, f'input_{epoch:02d}_{i:02d}.png'))
+            # # sample from the model
+            # if self.config.samples_dir is not None and (epoch+1) % self.config.sample_every == 0:
+            #     # import ipdb; ipdb.set_trace()
+            #     # inputs
+            #     layouts = self.fixed_x.detach().cpu().numpy()
+            #     input_layouts = [self.train_dataset.render(layout) for layout in layouts]
+            #     # for i, layout in enumerate(layouts):
+            #     #     layout = self.train_dataset.render(layout)
+            #     #     layout.save(os.path.join(self.config.samples_dir, f'input_{epoch:02d}_{i:02d}.png'))
 
-                # reconstruction
-                x_cond = self.fixed_x.to(self.device)
-                logits, _ = model(x_cond)
-                probs = F.softmax(logits, dim=-1)
-                _, y = torch.topk(probs, k=1, dim=-1)
-                layouts = torch.cat((x_cond[:, :1], y[:, :, 0]), dim=1).detach().cpu().numpy()
-                recon_layouts = [self.train_dataset.render(layout) for layout in layouts]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(os.path.join(self.config.samples_dir, f'recon_{epoch:02d}_{i:02d}.png'))
+            #     # reconstruction
+            #     x_cond = self.fixed_x.to(self.device)
+            #     logits, _ = model(x_cond)
+            #     probs = F.softmax(logits, dim=-1)
+            #     _, y = torch.topk(probs, k=1, dim=-1)
+            #     layouts = torch.cat((x_cond[:, :1], y[:, :, 0]), dim=1).detach().cpu().numpy()
+            #     recon_layouts = [self.train_dataset.render(layout) for layout in layouts]
+            #     # for i, layout in enumerate(layouts):
+            #     #     layout = self.train_dataset.render(layout)
+            #     #     layout.save(os.path.join(self.config.samples_dir, f'recon_{epoch:02d}_{i:02d}.png'))
 
-                # samples - random
-                layouts = sample(model, x_cond[:, :6], steps=self.train_dataset.max_length,
-                                 temperature=1.0, sample=True, top_k=5).detach().cpu().numpy()
-                sample_random_layouts = [self.train_dataset.render(layout) for layout in layouts]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(os.path.join(self.config.samples_dir, f'sample_random_{epoch:02d}_{i:02d}.png'))
+            #     # samples - random
+            #     layouts = sample(model, x_cond[:, :6], steps=self.train_dataset.max_length,
+            #                      temperature=1.0, sample=True, top_k=5).detach().cpu().numpy()
+            #     sample_random_layouts = [self.train_dataset.render(layout) for layout in layouts]
+            #     # for i, layout in enumerate(layouts):
+            #     #     layout = self.train_dataset.render(layout)
+            #     #     layout.save(os.path.join(self.config.samples_dir, f'sample_random_{epoch:02d}_{i:02d}.png'))
 
-                # samples - deterministic
-                layouts = sample(model, x_cond[:, :6], steps=self.train_dataset.max_length,
-                                 temperature=1.0, sample=False, top_k=None).detach().cpu().numpy()
-                sample_det_layouts = [self.train_dataset.render(layout) for layout in layouts]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(os.path.join(self.config.samples_dir, f'sample_det_{epoch:02d}_{i:02d}.png'))
+            #     # samples - deterministic
+            #     layouts = sample(model, x_cond[:, :6], steps=self.train_dataset.max_length,
+            #                      temperature=1.0, sample=False, top_k=None).detach().cpu().numpy()
+            #     sample_det_layouts = [self.train_dataset.render(layout) for layout in layouts]
+            #     # for i, layout in enumerate(layouts):
+            #     #     layout = self.train_dataset.render(layout)
+            #     #     layout.save(os.path.join(self.config.samples_dir, f'sample_det_{epoch:02d}_{i:02d}.png'))
 
-                wandb.log({
-                    "input_layouts": [wandb.Image(pil, caption=f'input_{epoch:02d}_{i:02d}.png')
-                                      for i, pil in enumerate(input_layouts)],
-                    "recon_layouts": [wandb.Image(pil, caption=f'recon_{epoch:02d}_{i:02d}.png')
-                                      for i, pil in enumerate(recon_layouts)],
-                    "sample_random_layouts": [wandb.Image(pil, caption=f'sample_random_{epoch:02d}_{i:02d}.png')
-                                              for i, pil in enumerate(sample_random_layouts)],
-                    "sample_det_layouts": [wandb.Image(pil, caption=f'sample_det_{epoch:02d}_{i:02d}.png')
-                                           for i, pil in enumerate(sample_det_layouts)],
-                }, step=self.iters)
+            #     wandb.log({
+            #         "input_layouts": [wandb.Image(pil, caption=f'input_{epoch:02d}_{i:02d}.png')
+            #                           for i, pil in enumerate(input_layouts)],
+            #         "recon_layouts": [wandb.Image(pil, caption=f'recon_{epoch:02d}_{i:02d}.png')
+            #                           for i, pil in enumerate(recon_layouts)],
+            #         "sample_random_layouts": [wandb.Image(pil, caption=f'sample_random_{epoch:02d}_{i:02d}.png')
+            #                                   for i, pil in enumerate(sample_random_layouts)],
+            #         "sample_det_layouts": [wandb.Image(pil, caption=f'sample_det_{epoch:02d}_{i:02d}.png')
+            #                                for i, pil in enumerate(sample_det_layouts)],
+            #     }, step=self.iters)
