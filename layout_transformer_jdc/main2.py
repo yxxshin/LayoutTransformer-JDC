@@ -2,9 +2,6 @@ import argparse
 import os
 
 import torch
-from torch_geometric.data import DataLoader
-from torch_geometric.utils import to_dense_batch
-
 from data import get_dataset
 from model import GPT, GPTConfig
 from trainer import Trainer, TrainerConfig

@@ -1,5 +1,4 @@
 import argparse
-import os
 import pickle
 from pathlib import Path
 
@@ -10,9 +9,8 @@ from torch_geometric.utils import to_dense_batch
 from tqdm import tqdm
 
 from data import get_dataset
-from dataset import JSONLayout
 from model import GPT, GPTConfig
-from utils import sample, set_seed, transfer_to_category, trim_tokens
+from utils import sample, trim_tokens
 
 
 def get_args():
@@ -32,6 +30,7 @@ def get_args():
     parser.add_argument("--out_path", type=str, default="output/generated_layouts.pkl")
     parser.add_argument("--num_context_boxes", type=int, default=1)
     parser.add_argument("--num_save", type=int, default=4)
+    parser.add_argument("--dataset_type", type=str, default="test")
     return parser.parse_args()
 
 
@@ -99,7 +98,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # dataset = JSONLayout(args.json_path, max_length=args.max_length)
-    dataset = get_dataset("publaynet", "test")
+    if args.dataset_type == "test":
+        dataset = get_dataset("publaynet", "test")
+    elif args.dataset_type == "train":
+        full_dataset = get_dataset("publaynet", "train")
+        dataset = torch.utils.data.Subset(full_dataset, range(4226))
+        dataset.colors = full_dataset.colors
+    
 
     dataloader = DataLoader(
         dataset,
