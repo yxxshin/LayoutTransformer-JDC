@@ -39,6 +39,7 @@ class GPT1Config(GPTConfig):
     n_head = 12
     n_embd = 768
     input_dim = 12  # x, y, w, h, categories(one hot, 8)
+    disc_dim = 8  # categories(one hot, 8)
 
     # DiffLoss config
     diffloss_d = 3
@@ -141,14 +142,14 @@ class GPT(nn.Module):
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
         # decoder head
         self.ln_f = nn.LayerNorm(config.n_embd)
-        self.head = nn.Linear(config.n_embd, config.input_dim, bias=False)
+        self.head = nn.Linear(config.n_embd, config.disc_dim, bias=False)
 
         self.block_size = config.block_size
         self.apply(self._init_weights)
 
         self.diffloss = DiffLoss(
             target_channels=4,
-            z_channels=4,
+            z_channels=1024,
             width=config.diffloss_w,
             depth=config.diffloss_d,
             num_sampling_steps=config.num_sampling_steps,
@@ -244,62 +245,55 @@ class GPT(nn.Module):
         x = self.drop(token_embeddings + position_embeddings)
         x = self.blocks(x)
         x = self.ln_f(x)
-        logits = self.head(x)  # [batch_size, max_length, dim]
 
         # if we are given some desired targets also calculate the loss
         ce_loss = None
         diffusion_loss = None
 
+        cont_dim = 4
+        disc_dim = 8
+
         if targets is not None:
+            targets_disc = targets[:, :, cont_dim:]    # [batch_size, max_length, disc_dim=8] (one-hot)
+            targets_cont = targets[:, :, :cont_dim]    # [batch_size, max_length, cont_dim=4]
 
-            logits_flat = logits.reshape(-1, dim)  # [batch_size * max_length, 12]
-            targets_flat = targets.reshape(-1, dim)  # [batch_size * max_length, 12]
+            # Discrete parts
+            logits = self.head(x)  # [batch_size, max_length, disc_dim]
+            logits_flat = logits.reshape(-1, disc_dim)  # [batch_size * max_length, disc_dim]
+            targets_disc_flat = targets_disc.reshape(-1, disc_dim)  # [batch_size * max_length, disc_dim]
+
             mask_flat = mask.reshape(-1)  # [batch_size * max_length]
-
-            # Discrete part -> Cross Entropy
-            logits_disc = logits_flat[:, 4:]  # [batch_size * max_length, 8]
-            targets_disc = targets_flat[:, 4:]  # [batch_size * max_length, 8]
-
-            logits_disc_masked = logits_disc[mask_flat]  # [seq_length, 8]
-            targets_disc_masked = targets_disc[mask_flat]  # [seq_length, 8]
+            logits_masked = logits_flat[mask_flat]
+            targets_disc_masked = targets_disc_flat[mask_flat]
 
             ce_loss = F.cross_entropy(
-                logits_disc_masked.view(-1, logits_disc_masked.size(-1)),
+                logits_masked.view(-1, logits_masked.size(-1)),
                 targets_disc_masked.view(-1, targets_disc_masked.size(-1)),
             )
 
-            # Continuous part -> Diffusion Loss
-            logits_cont = logits_flat[:, :4].reshape(
-                -1, 4
-            )  # [batch_size * max_length, 4]
-            targets_cont = targets_flat[:, :4].reshape(
-                -1, 4
-            )  # [batch_size * max_length, 4]
+            # Continuous part
+            x_flat = x.reshape(-1, x.size(-1))  # [batch_size * max_length, n_embd]
+            x_flat = x_flat.repeat(self.diffusion_batch_mul, 1)  # [batch_size * max_length * diffusion_batch_mul, n_embd]
+            targets_cont_flat = targets_cont.reshape(-1, targets_cont.size(-1))
+            targets_cont_flat = targets_cont_flat.repeat(self.diffusion_batch_mul, 1) # [batch_size * max_length * diffusion_batch_mul, cont_dim=4]
 
-            logits_cont = logits_cont.repeat(
-                self.diffusion_batch_mul, 1
-            )  # [batch_size * max_length * diffusion_batch_mul, 4]
-            targets_cont = targets_cont.repeat(self.diffusion_batch_mul, 1)
-
-            diffusion_loss = self.diffloss(z=logits_cont, target=targets_cont)
-            return logits, ce_loss, diffusion_loss
+            diffusion_loss = self.diffloss(z=x_flat, target=targets_cont_flat)
+            return ce_loss, diffusion_loss
+        
         else:
-            logits_cont = logits[:, :, :4]  # [b, t, 4]
-            logits_disc = logits[:, :, 4:]
-
             # Discrete part
-            probs_disc = F.softmax(logits_disc, dim=-1)
+            logits = self.head(x)  # [batch_size, max_length, disc_dim]
+            probs_disc = F.softmax(logits, dim=-1)  # [b, t, disc_dim]
             _, top_disc = torch.topk(probs_disc, k=1, dim=-1)  # [b, t, 1]
 
             # Continuous part
-            flat_logits_cont = logits_cont.reshape(-1, 4)  # [b*t, 4]
-            
+            flat_x = x.reshape(-1, x.size(-1))  # [b*t, n_embd]
             sampled_cont = self.diffloss.sample(
-                z=flat_logits_cont,
+                z=flat_x,
                 temperature=1.0,
                 cfg=1.0,
-            )
-            sampled_cont = sampled_cont.reshape(b, t, 4)
+            )   # [b*t, cont_dim]
+            sampled_cont = sampled_cont.reshape(b, t, cont_dim)
 
             processed_logits = torch.cat(
                 [

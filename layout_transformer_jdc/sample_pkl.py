@@ -21,6 +21,7 @@ def get_args():
     parser.add_argument("--n_embd", default=512, type=int)
     parser.add_argument("--n_head", default=8, type=int)
     parser.add_argument("--input_dim", default=12, type=int)
+    parser.add_argument("--disc_dim", default=8, type=int)
     parser.add_argument("--diffloss_d", type=int, default=3)
     parser.add_argument("--diffloss_w", type=int, default=256)
     parser.add_argument("--num_sampling_steps", type=str, default="100")
@@ -121,6 +122,7 @@ def main():
         n_head=args.n_head,
         n_embd=args.n_embd,
         input_dim=args.input_dim,
+        disc_dim=args.disc_dim,
         diffloss_d=args.diffloss_d,
         diffloss_w=args.diffloss_w,
         num_sampling_steps=args.num_sampling_steps,

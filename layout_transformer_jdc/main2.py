@@ -64,6 +64,7 @@ if __name__ == "__main__":
     # Layout options
     parser.add_argument("--max_length", type=int, default=11, help="max seq length")
     parser.add_argument("--input_dim", type=int, default=12, help="input dim")
+    parser.add_argument("--disc_dim", type=int, default=8, help="discrete dim")
 
     # DiffLoss options
     parser.add_argument("--diffloss_d", type=int, default=3)
@@ -120,6 +121,7 @@ if __name__ == "__main__":
         n_head=args.n_head,
         n_embd=args.n_embd,
         input_dim=args.input_dim,
+        disc_dim=args.disc_dim,
         diffloss_w=args.diffloss_w,
         diffloss_d=args.diffloss_d,
         num_sampling_steps=args.num_sampling_steps,

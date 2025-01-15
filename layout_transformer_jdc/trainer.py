@@ -111,7 +111,7 @@ class Trainer:
                 # forward the model
                 with torch.set_grad_enabled(is_train):
                     # import ipdb; ipdb.set_trace()
-                    logits, ce_loss, diffusion_loss = model(x, y, mask)
+                    ce_loss, diffusion_loss = model(x, y, mask)
                     loss = (ce_loss + config.loss_weight * diffusion_loss) / (1 + config.loss_weight)
                     loss = (
                         loss.mean()
@@ -203,112 +203,18 @@ class Trainer:
                 input_layouts = [
                     self.train_dataset.render(layout) for layout in layouts
                 ]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(os.path.join(self.config.samples_dir, f'input_{epoch:02d}_{i:02d}.png'))
 
                 # reconstruction
                 x_cond = self.fixed_x.to(self.device)
-                # logits, _ = model(x_cond)
                 processed_logits = model(
                     x_cond
                 )  # Already passed diffloss and softmax/topk
 
-                # probs = F.softmax(logits, dim=-1)
-                # _, y = torch.topk(probs, k=1, dim=-1)
-                # layouts = (
-                #     torch.cat((x_cond[:, :1], y[:, :, 0]), dim=1).detach().cpu().numpy()
-                # )
                 layouts = processed_logits.detach().cpu().numpy()
 
                 recon_layouts = [
                     self.train_dataset.render(layout) for layout in layouts
                 ]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(
-                #         os.path.join(
-                #             self.config.samples_dir, f"recon_{epoch:02d}_{i:02d}.png"
-                #         )
-                #     )
-
-                # samples - random
-                # layouts = (
-                #     sample(
-                #         model,
-                #         x_cond[:, :6],
-                #         steps=self.train_dataset.max_length,
-                #         temperature=1.0,
-                #         sample=True,
-                #         top_k=5,
-                #     )
-                #     .detach()
-                #     .cpu()
-                #     .numpy()
-                # )
-
-                # layouts = (
-                #     sample(
-                #         model,
-                #         x_cond[:, :2, :],
-                #         steps=self.train_dataset.max_length,
-                #         sample=True,
-                #     )
-                #     .detach()
-                #     .cpu()
-                #     .numpy()
-                # )
-                #
-                # sample_random_layouts = [
-                #     self.train_dataset.render(layout) for layout in layouts
-                # ]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(
-                #         os.path.join(
-                #             self.config.samples_dir,
-                #             f"sample_random_{epoch:02d}_{i:02d}.png",
-                #         )
-                #     )
-
-                # samples - deterministic
-                # layouts = (
-                #     sample(
-                #         model,
-                #         x_cond[:, :6],
-                #         steps=self.train_dataset.max_length,
-                #         temperature=1.0,
-                #         sample=False,
-                #         top_k=None,
-                #     )
-                #     .detach()
-                #     .cpu()
-                #     .numpy()
-                # )
-
-                # layouts = (
-                #     sample(
-                #         model,
-                #         x_cond[:, :2, :],
-                #         steps=self.train_dataset.max_length,
-                #         sample=False,
-                #     )
-                #     .detach()
-                #     .cpu()
-                #     .numpy()
-                # )
-                #
-                # sample_det_layouts = [
-                #     self.train_dataset.render(layout) for layout in layouts
-                # ]
-                # for i, layout in enumerate(layouts):
-                #     layout = self.train_dataset.render(layout)
-                #     layout.save(
-                #         os.path.join(
-                #             self.config.samples_dir,
-                #             f"sample_det_{epoch:02d}_{i:02d}.png",
-                #         )
-                #     )
 
                 wandb.log(
                     {
@@ -320,18 +226,6 @@ class Trainer:
                             wandb.Image(pil, caption=f"recon_{epoch:02d}_{i:02d}.png")
                             for i, pil in enumerate(recon_layouts)
                         ],
-                        # "sample_random_layouts": [
-                        #     wandb.Image(
-                        #         pil, caption=f"sample_random_{epoch:02d}_{i:02d}.png"
-                        #     )
-                        #     for i, pil in enumerate(sample_random_layouts)
-                        # ],
-                        # "sample_det_layouts": [
-                        #     wandb.Image(
-                        #         pil, caption=f"sample_det_{epoch:02d}_{i:02d}.png"
-                        #     )
-                        #     for i, pil in enumerate(sample_det_layouts)
-                        # ],
                     },
                     step=self.iters,
                 )
