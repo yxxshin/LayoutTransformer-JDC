@@ -14,17 +14,43 @@ class BaselineDatasetWrapper:
         self.dataset = dataset
         self.max_length = max_length
         self.precision = precision
-        self.vocab_size = 5 + (2 ** precision) + 3
+        self.vocab_size = 13 + (2 ** precision) + 3
         self.colors = dataset.colors
         self.bos_token = self.vocab_size - 3
         self.eos_token = self.vocab_size - 2
         self.pad_token = self.vocab_size - 1
         self.scale_factor = (2 ** precision) - 1
 
-    def __len__(self):
-        return len(self.dataset)
+        self.valid_indices = []
+        for idx in range(len(self.dataset)):
+            try:
+                sequence, _ = self._get_sequence(idx)
+                max_token = sequence.max().item()
+                if max_token < self.vocab_size:
+                    self.valid_indices.append(idx)
+                else:
+                    print(f"Skipping sample {idx}: Token {max_token} exceeds vocab size {self.vocab_size}")
+            except Exception as e:
+                print(f"Skipping invalid sample {idx}: {e}")
 
+        if not self.valid_indices:
+            raise ValueError("No valid samples found in the dataset!")
+
+    def __len__(self):
+        return len(self.valid_indices)
+    
     def __getitem__(self, idx):
+        # Use valid_indices to skip invalid samples
+        if idx >= len(self.valid_indices):
+            raise IndexError(f"Index {idx} is out of range for valid_indices (length {len(self.valid_indices)})")
+        valid_idx = self.valid_indices[idx]
+        try:
+            return self._get_sequence(valid_idx)
+        except Exception as e:
+            print(f"Error loading sample {valid_idx}: {e}")
+            raise  # Raise the exception to skip this sample
+
+    def _get_sequence(self, idx):
         data = self.dataset[idx]
 
         # Get the sequence for current layout
@@ -33,8 +59,13 @@ class BaselineDatasetWrapper:
 
         # Add bbox coordinates and labels in sequence
         for y, box in zip(data.y, data.x):
-            # Adjust label to proper vocab range (assuming 8 classes)
-            sequence.extend([y.item() + (2 ** self.precision)] + np.long((box * self.scale_factor).round()).tolist())
+            y_clamped = max(0, min(y.item(), 12))
+            box_clamped = torch.clamp((box * self.scale_factor).round(), 0, self.scale_factor)
+            # Adjust label to proper vocab range (assuming 13 classes)
+            # sequence.extend([y.item() + (2 ** self.precision)] + np.long((box * self.scale_factor).round()).tolist())
+            
+            class_token = y_clamped + (2 ** self.precision)
+            sequence.extend([class_token] + box_clamped.long().tolist())
 
         sequence.append(self.eos_token)  # Add EOS token
 
@@ -66,7 +97,7 @@ if __name__ == "__main__":
     )
 
     # Layout options
-    parser.add_argument("--max_length", type=int, default=47, help="batch size")
+    parser.add_argument("--max_length", type=int, default=80, help="batch size")
     parser.add_argument("--precision", type=int, default=8, 
                        help="number of bits for coordinate precision (e.g., 8 for 256 levels)")
     parser.add_argument("--element_order", default="raster")
@@ -107,8 +138,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
-    train_dataset_base = get_dataset("publaynet", "train")
-    valid_dataset_base = get_dataset("publaynet", "val")
+    train_dataset_base = get_dataset("rico", "train", data_path="/home/yxxshin/Desktop/CVLab/LayoutTransformer-JDC/data/dataset/rico")
+    valid_dataset_base = get_dataset("rico", "val", data_path="/home/yxxshin/Desktop/CVLab/LayoutTransformer-JDC/data/dataset/rico")
 
     train_dataset = BaselineDatasetWrapper(train_dataset_base, args.max_length, args.precision)
     valid_dataset = BaselineDatasetWrapper(valid_dataset_base, args.max_length, args.precision)

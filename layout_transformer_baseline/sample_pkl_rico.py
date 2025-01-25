@@ -46,7 +46,7 @@ def get_args():
     parser.add_argument("--out_path", type=str, default="samples.pkl")
     parser.add_argument("--precision", type=int, default=8,
                        help="number of bits for coordinate precision (e.g., 8 for 256 levels)")
-    parser.add_argument("--max_length", type=int, default=47)
+    parser.add_argument("--max_length", type=int, default=80)
     parser.add_argument("--n_layer", default=6, type=int)
     parser.add_argument("--n_head", default=8, type=int)
     parser.add_argument("--n_embd", default=512, type=int)
@@ -67,7 +67,7 @@ def convert_baseline_to_model_input(data, device, precision):
     
     scale_factor = (2 ** precision) - 1
     label_offset = 2 ** precision 
-    bos_token = label_offset + 8
+    bos_token = label_offset + 13
 
     for i in range(batch_size):
         curr_idx = 0
@@ -100,20 +100,16 @@ def main():
 
     # Load dataset
     if args.dataset_type == "test":
-        dataset = get_dataset("publaynet", "test")
-    elif args.dataset_type == "train":
-        full_dataset = get_dataset("publaynet", "train")
-        dataset = torch.utils.data.Subset(full_dataset, range(4226))
-        dataset.colors = full_dataset.colors
+        dataset = get_dataset("rico", "test", data_path="/home/yxxshin/Desktop/CVLab/LayoutTransformer-JDC/data/dataset/rico")
 
     dataloader = DataLoader(
-        dataset, batch_size=16, num_workers=4, pin_memory=True, shuffle=False
+        dataset, batch_size=512, num_workers=4, pin_memory=True, shuffle=False
     )
     
-    vocab_size = 8 + (2 ** args.precision) + 3
+    vocab_size = 13 + (2 ** args.precision) + 3
     
     label_offset = 2 ** args.precision
-    bos_token = label_offset + 8
+    bos_token = label_offset + 13
     eos_token = bos_token + 1 
     pad_token = eos_token + 1
 

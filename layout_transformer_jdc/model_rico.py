@@ -32,21 +32,21 @@ class GPTConfig:
             setattr(self, k, v)
 
 
-class GPT1Config(GPTConfig):
-    """GPT-1 like network roughly 125M params"""
+# class GPT1Config(GPTConfig):
+#     """GPT-1 like network roughly 125M params"""
 
-    n_layer = 12
-    n_head = 12
-    n_embd = 768
-    input_dim = 12  # x, y, w, h, categories(one hot, 8)
-    disc_dim = 8  # categories(one hot, 8)
+#     n_layer = 6
+#     n_head = 8
+#     n_embd = 512
+#     input_dim = 12  # x, y, w, h, categories(one hot, 8)
+#     disc_dim = 8  # categories(one hot, 8)
 
-    # DiffLoss config
-    diffloss_d = 3
-    diffloss_w = 256
-    num_sampling_steps = "100"
-    grad_checkpointing = False
-    diffusion_batch_mul = 4
+#     # DiffLoss config
+#     diffloss_d = 3
+#     diffloss_w = 256
+#     num_sampling_steps = "100"
+#     grad_checkpointing = False
+#     diffusion_batch_mul = 4
 
 
 class CausalSelfAttention(nn.Module):
@@ -251,7 +251,7 @@ class GPT(nn.Module):
         diffusion_loss = None
 
         cont_dim = 4
-        disc_dim = 8
+        disc_dim = 16
 
         if targets is not None:
             targets_disc = targets[:, :, cont_dim:]    # [batch_size, max_length, disc_dim=8] (one-hot)

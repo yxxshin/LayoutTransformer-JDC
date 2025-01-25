@@ -13,7 +13,7 @@ import wandb
 from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
-from utils_rico import sample
+from utils import sample
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +63,13 @@ class Trainer:
             self.model = torch.nn.DataParallel(self.model).to(self.device)
 
         self.pad_token = torch.tensor(
-            [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 1], dtype=torch.float32
+            [0.0] * 4 + [0] * 13 + [0, 0, 1], dtype=torch.float32
         )
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, epoch):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        ckpt_path = os.path.join(self.config.ckpt_dir, "checkpoint.pth")
+        ckpt_path = os.path.join(self.config.ckpt_dir, f"checkpoint_{epoch}.pth")
         logger.info("saving %s", ckpt_path)
         torch.save(raw_model.state_dict(), ckpt_path)
 
@@ -179,10 +179,12 @@ class Trainer:
                     test_loss = run_epoch("test")
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_loss < best_loss
-            if self.config.ckpt_dir is not None and good_model:
-                best_loss = test_loss
-                self.save_checkpoint()
+            # good_model = self.test_dataset is None or test_loss < best_loss
+            # if self.config.ckpt_dir is not None and good_model:
+            #     best_loss = test_loss
+            #     self.save_checkpoint()
+            if epoch % 50 == 0:
+                self.save_checkpoint(epoch)
 
             # sample from the model
             if (
